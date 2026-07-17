@@ -257,7 +257,7 @@ export default function App() {
                     <input 
                       type="text" 
                       className="form-input" 
-                      placeholder="e.g. Abhiram Sharma" 
+                      placeholder="e.g. Abhiram" 
                       value={loginName}
                       onChange={(e) => setLoginName(e.target.value)}
                     />
@@ -277,7 +277,7 @@ export default function App() {
                     <input 
                       type="text" 
                       className="form-input" 
-                      placeholder="e.g. abhiram.s@company.com" 
+                      placeholder="e.g. abhiram.g@company.com" 
                       value={loginMail}
                       onChange={(e) => setLoginMail(e.target.value)}
                     />
@@ -577,7 +577,7 @@ export default function App() {
                         <input 
                           type="text" 
                           className="form-input" 
-                          placeholder="e.g. Abhiram Sharma" 
+                          placeholder="e.g. Abhiram" 
                           value={formName}
                           onChange={(e) => setFormName(e.target.value)}
                         />
@@ -597,7 +597,7 @@ export default function App() {
                         <input 
                           type="text" 
                           className="form-input" 
-                          placeholder="e.g. abhiram.s@company.com" 
+                          placeholder="e.g. abhiram.g@company.com" 
                           value={formMail}
                           onChange={(e) => setFormMail(e.target.value)}
                         />
