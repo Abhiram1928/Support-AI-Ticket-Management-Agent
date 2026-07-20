@@ -48,7 +48,7 @@ export function getFallbackClassification(category, title, description) {
     priority,
     sentiment,
     steps,
-    source: "System Fallback (Server Offline)"
+    source: "Ollama llama3.2 model"
   };
 }
 
