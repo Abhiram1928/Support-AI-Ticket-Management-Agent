@@ -122,7 +122,6 @@ export default function App() {
     setLoggedIn(false);
     setUserRole(null);
     setSessionUser({ name: '', id: '', email: '', dept: '' });
-    setTicketsDb([]); // Reset session tickets on logout if desired, or keep them
     // Reset login form fields
     setLoginName('');
     setLoginId('');
