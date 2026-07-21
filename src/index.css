@@ -175,7 +175,7 @@ html, body, #root {
 
 .status-box {
     background-color: #0f172a40;
-    border: 1px solid #ce1717;
+    border: 1px solid hsl(0, 86%, 49%);
     border-radius: 8px;
     padding: 1rem;
     display: flex;
@@ -480,7 +480,7 @@ html, body, #root {
 }
 
 .card-meta span {
-    color: #38bdf8 !important;
+    color: #f10707 !important;
     font-weight: 600;
 }
 
