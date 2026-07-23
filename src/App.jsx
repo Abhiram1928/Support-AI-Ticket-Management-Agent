@@ -39,6 +39,34 @@ export default function App() {
   // Database Connection Status
   const [dbServerOffline, setDbServerOffline] = useState(false);
 
+  // Ollama Connection Status
+  const [ollamaStatus, setOllamaStatus] = useState('checking');
+  const [ollamaError, setOllamaError] = useState('');
+
+  const checkOllamaConnection = async (url) => {
+    setOllamaStatus('checking');
+    setOllamaError('');
+    try {
+      const res = await fetch(`${url}/api/tags`);
+      if (res.ok) {
+        setOllamaStatus('online');
+      } else {
+        setOllamaStatus('offline');
+        setOllamaError(`HTTP Error: ${res.status}`);
+      }
+    } catch (err) {
+      setOllamaStatus('offline');
+      setOllamaError(err.message === 'Failed to fetch' 
+        ? 'Failed to fetch (CORS block or VM offline)' 
+        : err.message
+      );
+    }
+  };
+
+  useEffect(() => {
+    checkOllamaConnection(ollamaUrl);
+  }, [ollamaUrl]);
+
   // Login inputs state
   const [loginRole, setLoginRole] = useState('Employee Portal');
   const [loginName, setLoginName] = useState('');
@@ -624,11 +652,25 @@ export default function App() {
           <input 
             type="text" 
             className="form-input" 
-            style={{ fontSize: '0.85rem', padding: '0.5rem 0.75rem', border: '1px solid #475569', backgroundColor: '#0f172a', color: '#f1f5f9' }}
+            style={{ fontSize: '0.85rem', padding: '0.5rem 0.75rem', border: '1px solid #475569', backgroundColor: '#0f172a', color: '#f1f5f9', marginBottom: '0.5rem' }}
             placeholder="http://localhost:11434"
             value={ollamaUrl} 
             onChange={(e) => setOllamaUrl(e.target.value)} 
           />
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button 
+              type="button" 
+              onClick={() => checkOllamaConnection(ollamaUrl)} 
+              style={{ fontSize: '0.75rem', padding: '4px 10px', border: '1px solid #475569', backgroundColor: '#1e293b', color: '#cbd5e1', borderRadius: '4px', cursor: 'pointer', flex: 1 }}
+            >
+              🔄 Test Connection
+            </button>
+          </div>
+          {ollamaStatus === 'offline' && ollamaError && (
+            <div style={{ fontSize: '0.7rem', color: '#f87171', marginTop: '0.35rem', lineHeight: '1.2' }}>
+              ⚠️ {ollamaError}
+            </div>
+          )}
         </div>
 
         <hr className="sidebar-divider" />
@@ -637,7 +679,14 @@ export default function App() {
         <div className="status-box" style={{ marginBottom: '1.5rem' }}>
           <div className="status-line">
             <span>AI Agent:</span>
-            <span className="status-value" style={{ color: '#22c55e' }}>🟢 Online</span>
+            <span className="status-value" style={{ 
+              color: ollamaStatus === 'online' ? '#22c55e' : ollamaStatus === 'checking' ? '#fbbf24' : '#ef4444',
+              fontWeight: 600
+            }}>
+              {ollamaStatus === 'online' && '🟢 Connected'}
+              {ollamaStatus === 'checking' && '🟡 Checking...'}
+              {ollamaStatus === 'offline' && '🔴 Offline'}
+            </span>
           </div>
           <div className="status-line">
             <span>Active Tickets:</span>
