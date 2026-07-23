@@ -24,11 +24,20 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   
-  // Persist tickets in localStorage
-  const [ticketsDb, setTicketsDb] = useState(() => {
-    const saved = localStorage.getItem('tickets_db');
-    return saved ? JSON.parse(saved) : [];
+  // Tickets state fetched from SQLite database
+  const [ticketsDb, setTicketsDb] = useState([]);
+
+  // Configurable Ollama VM Server URL
+  const [ollamaUrl, setOllamaUrl] = useState(() => {
+    return localStorage.getItem('ollama_url') || 'http://localhost:11434';
   });
+
+  // Custom text input states for dynamic dropdown options
+  const [customTitle, setCustomTitle] = useState('');
+  const [customCategory, setCustomCategory] = useState('');
+
+  // Database Connection Status
+  const [dbServerOffline, setDbServerOffline] = useState(false);
 
   // Login inputs state
   const [loginRole, setLoginRole] = useState('Employee Portal');
@@ -53,11 +62,24 @@ export default function App() {
     localStorage.setItem('logged_in', loggedIn);
     localStorage.setItem('user_role', userRole || '');
     localStorage.setItem('session_user', JSON.stringify(sessionUser));
-  }, [loggedIn, userRole, sessionUser]);
+    localStorage.setItem('ollama_url', ollamaUrl);
+  }, [loggedIn, userRole, sessionUser, ollamaUrl]);
 
+  // Fetch tickets from SQLite database on app load / authentication
   useEffect(() => {
-    localStorage.setItem('tickets_db', JSON.stringify(ticketsDb));
-  }, [ticketsDb]);
+    if (loggedIn) {
+      fetch('http://localhost:5000/api/tickets')
+        .then(res => {
+          setDbServerOffline(false);
+          return res.json();
+        })
+        .then(data => setTicketsDb(data))
+        .catch(err => {
+          console.error("Error connecting to SQLite backend server:", err);
+          setDbServerOffline(true);
+        });
+    }
+  }, [loggedIn]);
 
   // Sync ticket form values with logged-in user profile
   useEffect(() => {
@@ -72,6 +94,8 @@ export default function App() {
   const resetForm = () => {
     setFormTitle('-- Select ticket title or topic --');
     setFormCategory('-- Select Issue Type --');
+    setCustomTitle('');
+    setCustomCategory('');
     setFormDescription('');
     setStep('form');
   };
@@ -135,7 +159,15 @@ export default function App() {
     e.preventDefault();
     setErrorMsg('');
 
-    if (!formName || !formId || !formMail || formTitle === '-- Select ticket title or topic --' || formCategory === '-- Select Issue Type --' || !formDescription) {
+    const finalTitle = formTitle === 'Type custom title...' ? customTitle : formTitle;
+    const finalCategory = formCategory === 'Type custom category...' ? customCategory : formCategory;
+
+    if (!formName || !formId || !formMail || 
+        formTitle === '-- Select ticket title or topic --' || 
+        (formTitle === 'Type custom title...' && !customTitle) || 
+        formCategory === '-- Select Issue Type --' || 
+        (formCategory === 'Type custom category...' && !customCategory) || 
+        !formDescription) {
       setErrorMsg('⚠️ Please fill in all required fields (*) before submitting.');
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
@@ -143,20 +175,20 @@ export default function App() {
 
     setLoading(true);
 
-    const titleText = formTitle === 'Other (Describe below)' 
+    const titleText = finalTitle === 'Other (Describe below)' 
       ? `Other: ${formDescription.substring(0, 30)}...` 
-      : formTitle;
+      : finalTitle;
 
     try {
       // Connect to Ollama VM server to auto-assign priority, sentiment, and resolution steps
-      const analysis = await classifyTicketWithOllama(formCategory, titleText, formDescription);
+      const analysis = await classifyTicketWithOllama(finalCategory, titleText, formDescription, ollamaUrl);
       
       setTicketData({
         name: formName,
         id: formId,
         email: formMail,
         title: titleText,
-        category: formCategory,
+        category: finalCategory,
         desc: formDescription,
         priority: analysis.priority,
         sentiment: analysis.sentiment,
@@ -177,7 +209,7 @@ export default function App() {
     setStep('completed');
   };
 
-  const handleQueueTicket = () => {
+  const handleQueueTicket = async () => {
     const newTckId = `TCK-${Math.floor(1000 + Math.random() * 9000)}`;
     const newTicket = {
       id: newTckId,
@@ -190,23 +222,72 @@ export default function App() {
       status: "Pending Assignment"
     };
 
-    // Insert at front of local tickets array
-    setTicketsDb(prev => [newTicket, ...prev]);
-    setStep('submitted_agent');
+    try {
+      const response = await fetch('http://localhost:5000/api/tickets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(newTicket)
+      });
+      if (response.ok) {
+        setTicketsDb(prev => [newTicket, ...prev]);
+        setStep('submitted_agent');
+      }
+    } catch (err) {
+      console.error("Error saving ticket to SQLite backend:", err);
+      // Local fallback push if backend is offline
+      setTicketsDb(prev => [newTicket, ...prev]);
+      setStep('submitted_agent');
+    }
   };
 
   // Dashboard technician resolution popping and escalation handlers
-  const handleDashboardResolve = (originalIndex) => {
-    setTicketsDb(prev => prev.filter((_, i) => i !== originalIndex));
+  const handleDashboardResolve = async (originalIndex) => {
+    const ticket = ticketsDb[originalIndex];
+    try {
+      const response = await fetch(`http://localhost:5000/api/tickets/${ticket.id}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        setTicketsDb(prev => prev.filter((_, i) => i !== originalIndex));
+      }
+    } catch (err) {
+      console.error("Error resolving ticket from SQLite backend:", err);
+      setTicketsDb(prev => prev.filter((_, i) => i !== originalIndex));
+    }
   };
 
-  const handleDashboardEscalate = (originalIndex) => {
-    setTicketsDb(prev => prev.map((tck, i) => {
-      if (i === originalIndex) {
-        return { ...tck, priority: 'Critical', status: 'Escalated' };
+  const handleDashboardEscalate = async (originalIndex) => {
+    const ticket = ticketsDb[originalIndex];
+    try {
+      const response = await fetch(`http://localhost:5000/api/tickets/${ticket.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          priority: 'Critical',
+          status: 'Escalated'
+        })
+      });
+      if (response.ok) {
+        setTicketsDb(prev => prev.map((tck, i) => {
+          if (i === originalIndex) {
+            return { ...tck, priority: 'Critical', status: 'Escalated' };
+          }
+          return tck;
+        }));
       }
-      return tck;
-    }));
+    } catch (err) {
+      console.error("Error escalating ticket on SQLite backend:", err);
+      setTicketsDb(prev => prev.map((tck, i) => {
+        if (i === originalIndex) {
+          return { ...tck, priority: 'Critical', status: 'Escalated' };
+        }
+        return tck;
+      }));
+    }
   };
 
   // --------------------------------------------------------------------------
@@ -383,6 +464,43 @@ export default function App() {
       return wa - wb;
     });
 
+  // Default option catalogs
+  const defaultTitles = [
+    "Cannot log into internal HR portal",
+    "VPN connection failing with handshake error",
+    "Requesting software license approval",
+    "Hardware issue - flickering external monitor",
+    "Other (Describe below)"
+  ];
+
+  const defaultCategories = [
+    "Authentication & Access",
+    "Network & Connectivity",
+    "Software / Licenses",
+    "Hardware Support",
+    "General Enquiry"
+  ];
+
+  // Extract unique custom titles and categories from the database history
+  const dbTitles = ticketsDb ? ticketsDb.map(t => t.title) : [];
+  const uniqueDbTitles = [...new Set(dbTitles)].filter(t => t && !defaultTitles.includes(t));
+  const titleOptions = [
+    "-- Select ticket title or topic --",
+    ...defaultTitles.slice(0, -1),
+    ...uniqueDbTitles,
+    "Other (Describe below)",
+    "Type custom title..."
+  ];
+
+  const dbCategories = ticketsDb ? ticketsDb.map(t => t.category) : [];
+  const uniqueDbCategories = [...new Set(dbCategories)].filter(c => c && !defaultCategories.includes(c));
+  const categoryOptions = [
+    "-- Select Issue Type --",
+    ...defaultCategories,
+    ...uniqueDbCategories,
+    "Type custom category..."
+  ];
+
   // --------------------------------------------------------------------------
   // MAIN APPLICATION LAYOUT
   // --------------------------------------------------------------------------
@@ -501,6 +619,20 @@ export default function App() {
 
         <hr className="sidebar-divider" />
 
+        <div className="sidebar-title">Ollama VM URL</div>
+        <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+          <input 
+            type="text" 
+            className="form-input" 
+            style={{ fontSize: '0.85rem', padding: '0.5rem 0.75rem', border: '1px solid #475569', backgroundColor: '#0f172a', color: '#f1f5f9' }}
+            placeholder="http://localhost:11434"
+            value={ollamaUrl} 
+            onChange={(e) => setOllamaUrl(e.target.value)} 
+          />
+        </div>
+
+        <hr className="sidebar-divider" />
+
         <div className="sidebar-title">System Status</div>
         <div className="status-box" style={{ marginBottom: '1.5rem' }}>
           <div className="status-line">
@@ -549,6 +681,12 @@ export default function App() {
       {/* Main Content Area */}
       <div className="main-content">
         <div className="content-container">
+          
+          {dbServerOffline && (
+            <div className="alert-error" style={{ marginBottom: '1.5rem', borderLeft: '5px solid #ef4444' }}>
+              <span>⚠️ <strong>Database Offline:</strong> Could not connect to the backend server. Please make sure to run <code>node server/index.js</code> inside your project directory to load your SQLite database!</span>
+            </div>
+          )}
           
           {appMode === 'Employee Mode' ? (
             <>
@@ -610,30 +748,56 @@ export default function App() {
                         <select 
                           className="form-select" 
                           value={formTitle}
-                          onChange={(e) => setFormTitle(e.target.value)}
+                          onChange={(e) => {
+                            setFormTitle(e.target.value);
+                            if (e.target.value !== 'Type custom title...') {
+                              setCustomTitle('');
+                            }
+                          }}
                         >
-                          <option value="-- Select ticket title or topic --">-- Select ticket title or topic --</option>
-                          <option value="Cannot log into internal HR portal">Cannot log into internal HR portal</option>
-                          <option value="VPN connection failing with handshake error">VPN connection failing with handshake error</option>
-                          <option value="Requesting software license approval">Requesting software license approval</option>
-                          <option value="Hardware issue - flickering external monitor">Hardware issue - flickering external monitor</option>
-                          <option value="Other (Describe below)">Other (Describe below)</option>
+                          {titleOptions.map((opt, idx) => (
+                            <option key={idx} value={opt}>{opt}</option>
+                          ))}
                         </select>
+                        {formTitle === 'Type custom title...' && (
+                          <div style={{ marginTop: '0.5rem' }}>
+                            <input 
+                              type="text" 
+                              className="form-input" 
+                              placeholder="Enter custom ticket title (e.g. Faced detection problem)" 
+                              value={customTitle}
+                              onChange={(e) => setCustomTitle(e.target.value)}
+                            />
+                          </div>
+                        )}
                       </div>
                       <div className="form-group">
                         <label>Issue Facing *</label>
                         <select 
                           className="form-select" 
                           value={formCategory}
-                          onChange={(e) => setFormCategory(e.target.value)}
+                          onChange={(e) => {
+                            setFormCategory(e.target.value);
+                            if (e.target.value !== 'Type custom category...') {
+                              setCustomCategory('');
+                            }
+                          }}
                         >
-                          <option value="-- Select Issue Type --">-- Select Issue Type --</option>
-                          <option value="Authentication & Access">Authentication & Access</option>
-                          <option value="Network & Connectivity">Network & Connectivity</option>
-                          <option value="Software / Licenses">Software / Licenses</option>
-                          <option value="Hardware Support">Hardware Support</option>
-                          <option value="General Enquiry">General Enquiry</option>
+                          {categoryOptions.map((opt, idx) => (
+                            <option key={idx} value={opt}>{opt}</option>
+                          ))}
                         </select>
+                        {formCategory === 'Type custom category...' && (
+                          <div style={{ marginTop: '0.5rem' }}>
+                            <input 
+                              type="text" 
+                              className="form-input" 
+                              placeholder="Enter custom category (e.g. Technical glitch in facial recognition)" 
+                              value={customCategory}
+                              onChange={(e) => setCustomCategory(e.target.value)}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
 

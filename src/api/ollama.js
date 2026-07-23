@@ -55,7 +55,7 @@ export function getFallbackClassification(category, title, description) {
 /**
  * Communicates with the local Ollama VM to classify the ticket's priority, sentiment, and steps.
  */
-export async function classifyTicketWithOllama(category, title, description) {
+export async function classifyTicketWithOllama(category, title, description, ollamaUrl = "http://localhost:11434") {
   const fallback = getFallbackClassification(category, title, description);
   
   const prompt = `
@@ -88,7 +88,7 @@ export async function classifyTicketWithOllama(category, title, description) {
   const timeoutId = setTimeout(() => controller.abort(), 12000);
 
   try {
-    const response = await fetch(`${OLLAMA_URL}/api/generate`, {
+    const response = await fetch(`${ollamaUrl}/api/generate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"

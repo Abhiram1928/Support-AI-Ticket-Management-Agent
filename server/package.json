@@ -1,0 +1,15 @@
+{
+  "name": "support-ai-server",
+  "version": "1.0.0",
+  "description": "Backend database server for Support AI Desk",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "private": true,
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "sqlite3": "^5.1.7"
+  }
+}
