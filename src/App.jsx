@@ -49,7 +49,15 @@ export default function App() {
     try {
       const res = await fetch(`${url}/api/tags`);
       if (res.ok) {
-        setOllamaStatus('online');
+        const data = await res.json();
+        // Check if llama3.2 (either base or latest tag) is installed
+        const hasModel = data.models && data.models.some(m => m.name && m.name.toLowerCase().includes('llama3.2'));
+        if (hasModel) {
+          setOllamaStatus('online');
+        } else {
+          setOllamaStatus('offline');
+          setOllamaError("Model 'llama3.2' not found. Please open a new terminal and run: 'ollama pull llama3.2'");
+        }
       } else {
         setOllamaStatus('offline');
         setOllamaError(`HTTP Error: ${res.status}`);
@@ -240,7 +248,7 @@ export default function App() {
   const handleQueueTicket = async () => {
     const newTckId = `TCK-${Math.floor(1000 + Math.random() * 9000)}`;
     const newTicket = {
-      id: newTckId,
+      ticket_id: newTckId,
       name: ticketData.name,
       email: ticketData.email,
       title: ticketData.title,
@@ -274,7 +282,7 @@ export default function App() {
   const handleDashboardResolve = async (originalIndex) => {
     const ticket = ticketsDb[originalIndex];
     try {
-      const response = await fetch(`http://localhost:5000/api/tickets/${ticket.id}`, {
+      const response = await fetch(`http://localhost:5000/api/tickets/${ticket.ticket_id}`, {
         method: 'DELETE'
       });
       if (response.ok) {
@@ -289,7 +297,7 @@ export default function App() {
   const handleDashboardEscalate = async (originalIndex) => {
     const ticket = ticketsDb[originalIndex];
     try {
-      const response = await fetch(`http://localhost:5000/api/tickets/${ticket.id}`, {
+      const response = await fetch(`http://localhost:5000/api/tickets/${ticket.ticket_id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
@@ -990,9 +998,9 @@ export default function App() {
                   </p>
                 ) : (
                   sortedTickets.map(({ tck, originalIndex }) => (
-                    <div className="glass-card-sm" key={tck.id}>
+                    <div className="glass-card-sm" key={tck.ticket_id}>
                       <div className="card-header">
-                        <strong>{tck.id} - {tck.title}</strong>
+                        <strong>{tck.ticket_id} - {tck.title}</strong>
                         <span className={`priority-badge priority-${tck.priority.toLowerCase()}`}>
                           {tck.priority}
                         </span>

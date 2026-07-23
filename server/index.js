@@ -18,7 +18,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
     console.log('Connected to local SQLite database at:', dbPath);
     // Create the tickets table if it doesn't exist
     db.run(`CREATE TABLE IF NOT EXISTS tickets (
-      id TEXT PRIMARY KEY,
+      ticket_id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       email TEXT NOT NULL,
       title TEXT NOT NULL,
@@ -54,14 +54,14 @@ app.get('/api/tickets', (req, res) => {
 
 // 2. POST: Add a new ticket
 app.post('/api/tickets', (req, res) => {
-  const { id, name, email, title, category, priority, desc, status } = req.body;
-  if (!id || !name || !email || !title || !category || !priority) {
+  const { ticket_id, name, email, title, category, priority, desc, status } = req.body;
+  if (!ticket_id || !name || !email || !title || !category || !priority) {
     return res.status(400).json({ error: 'Missing required ticket fields.' });
   }
 
-  const sql = `INSERT INTO tickets (id, name, email, title, category, priority, desc, status) 
+  const sql = `INSERT INTO tickets (ticket_id, name, email, title, category, priority, desc, status) 
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-  const params = [id, name, email, title, category, priority, desc, status || 'Pending Assignment'];
+  const params = [ticket_id, name, email, title, category, priority, desc, status || 'Pending Assignment'];
 
   db.run(sql, params, function(err) {
     if (err) {
@@ -69,7 +69,7 @@ app.post('/api/tickets', (req, res) => {
     } else {
       res.status(201).json({ 
         message: 'Ticket successfully created', 
-        ticketId: id 
+        ticketId: ticket_id 
       });
     }
   });
@@ -82,7 +82,7 @@ app.put('/api/tickets/:id', (req, res) => {
 
   const sql = `UPDATE tickets 
                SET priority = ?, status = ? 
-               WHERE id = ?`;
+               WHERE ticket_id = ?`;
   const params = [priority || 'Critical', status || 'Escalated', ticketId];
 
   db.run(sql, params, function(err) {
@@ -99,7 +99,7 @@ app.put('/api/tickets/:id', (req, res) => {
 // 4. DELETE: Resolve (remove) a ticket
 app.delete('/api/tickets/:id', (req, res) => {
   const ticketId = req.params.id;
-  const sql = 'DELETE FROM tickets WHERE id = ?';
+  const sql = 'DELETE FROM tickets WHERE ticket_id = ?';
 
   db.run(sql, ticketId, function(err) {
     if (err) {

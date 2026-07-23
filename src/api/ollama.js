@@ -37,12 +37,41 @@ export function getFallbackClassification(category, title, description) {
     sentiment = "Calm";
   }
 
-  // 3. Fallback Steps
-  const steps = [
-    "Verify local hardware lines, ethernet cables, and wireless router connectivity.",
-    "Clear browser local storage, active cookie caches, and try running inside a private window.",
-    "Restart the specific software client or trigger a system reboot to clear memory leaks."
-  ];
+  // 3. Category-Specific Dynamic Fallback Steps (so offline tests don't deliver the same 3 points)
+  let steps = [];
+  const normalizedCategory = (category || "").toLowerCase();
+
+  if (normalizedCategory.includes("auth") || normalizedCategory.includes("access")) {
+    steps = [
+      "Clear browser cookies and active website storage cache, then attempt credentials login using a private window.",
+      "Verify your corporate email username and reset credentials via the self-service HR credential recovery link.",
+      "Ensure your dual-factor mobile authorization application (MFA) is sync-refreshed and online."
+    ];
+  } else if (normalizedCategory.includes("network") || normalizedCategory.includes("connect") || normalizedCategory.includes("vpn")) {
+    steps = [
+      "Toggle your local router hardware off and on, or verify active Ethernet/Wi-Fi signal lines.",
+      "Open your command terminal and flush system cache by typing 'ipconfig /flushdns', then reboot browser.",
+      "Check if your corporate VPN application client has available pending updates, or try connecting to a secondary gateway."
+    ];
+  } else if (normalizedCategory.includes("hardware") || normalizedCategory.includes("monitor") || normalizedCategory.includes("screen")) {
+    steps = [
+      "Verify that all power and display visual cables (HDMI, DisplayPort) are securely seated at both endpoints.",
+      "Try unplugging the interface peripheral or monitor, waiting 20 seconds, and inserting it into a secondary port.",
+      "Perform a hardware power reset: turn off, unplug power adapters for 30 seconds, hold power button, and restart."
+    ];
+  } else if (normalizedCategory.includes("software") || normalizedCategory.includes("license")) {
+    steps = [
+      "Terminate the application via Windows Task Manager, clear local temp logs, and relaunch.",
+      "Verify if a clean patch or software update is pending approval inside the local Software Catalog.",
+      "Check if your account license key credentials has expired or needs reactivation by security."
+    ];
+  } else {
+    steps = [
+      "Perform a clean system reboot to clear operating memory leaks and active cache blocks.",
+      "Verify active local network connections and check if corporate internal intranet portals are reachable.",
+      "Clear browser cookies and cache logs to resolve local web script rendering issues."
+    ];
+  }
 
   return {
     priority,
@@ -69,7 +98,7 @@ export async function classifyTicketWithOllama(category, title, description, oll
   Classify:
   - "sentiment": Choose exactly from: "Neutral", "Frustrated", "Angry", "Calm".
   - "priority": Choose exactly from: "Low", "Medium", "High", "Critical".
-  - "steps": 3 simple, practical troubleshooting steps.
+  - "steps": 3 custom, highly specific, practical self-resolution steps that the employee can perform on their own to resolve the exact problem described.
 
   JSON structure:
   {
