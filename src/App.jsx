@@ -39,6 +39,10 @@ export default function App() {
   // Database Connection Status
   const [dbServerOffline, setDbServerOffline] = useState(false);
 
+  // Ticket Dashboard filter/search states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
+
   // Ollama Connection Status
   const [ollamaStatus, setOllamaStatus] = useState('checking');
   const [ollamaError, setOllamaError] = useState('');
@@ -159,7 +163,7 @@ export default function App() {
       setLoggedIn(true);
       setAppMode('Employee Mode');
       resetForm();
-    } else {
+    } else if (loginRole === 'Technician Portal') {
       if (!loginName || !loginId || !loginMail || !loginPwd) {
         setErrorMsg('⚠️ Please fill in all required fields (*) to authenticate.');
         return;
@@ -172,6 +176,23 @@ export default function App() {
       const user = { name: loginName, id: loginId, email: loginMail, dept: 'IT Support' };
       setSessionUser(user);
       setUserRole('technician');
+      setLoggedIn(true);
+      setAppMode('Employee Mode');
+      resetForm();
+    } else {
+      // Admin Portal
+      if (!loginName || !loginId || !loginMail || !loginPwd) {
+        setErrorMsg('⚠️ Please fill in all required fields (*) to authenticate.');
+        return;
+      }
+      if (!loginMail.includes('@') || !loginMail.includes('.')) {
+        setErrorMsg('⚠️ Please enter a valid admin email address.');
+        return;
+      }
+
+      const user = { name: loginName, id: loginId, email: loginMail, dept: 'IT Management' };
+      setSessionUser(user);
+      setUserRole('admin');
       setLoggedIn(true);
       setAppMode('Employee Mode');
       resetForm();
@@ -281,16 +302,36 @@ export default function App() {
   // Dashboard technician resolution popping and escalation handlers
   const handleDashboardResolve = async (originalIndex) => {
     const ticket = ticketsDb[originalIndex];
+    const resolverName = sessionUser.name || 'Technician';
     try {
-      const response = await fetch(`http://localhost:5000/api/tickets/${ticket.ticket_id}`, {
-        method: 'DELETE'
+      const response = await fetch(`http://localhost:5000/api/tickets/${ticket.ticket_id}/resolve`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          resolved_by: resolverName
+        })
       });
       if (response.ok) {
-        setTicketsDb(prev => prev.filter((_, i) => i !== originalIndex));
+        setTicketsDb(prev => prev.map((tck, idx) => {
+          if (idx === originalIndex) {
+            return { ...tck, status: 'Resolved', resolved_by: resolverName };
+          }
+          return tck;
+        }));
+      } else {
+        throw new Error(`Server returned error status ${response.status}`);
       }
     } catch (err) {
       console.error("Error resolving ticket from SQLite backend:", err);
-      setTicketsDb(prev => prev.filter((_, i) => i !== originalIndex));
+      // Fallback local update if offline or server fails
+      setTicketsDb(prev => prev.map((tck, idx) => {
+        if (idx === originalIndex) {
+          return { ...tck, status: 'Resolved', resolved_by: resolverName };
+        }
+        return tck;
+      }));
     }
   };
 
@@ -314,6 +355,8 @@ export default function App() {
           }
           return tck;
         }));
+      } else {
+        throw new Error(`Server returned error status ${response.status}`);
       }
     } catch (err) {
       console.error("Error escalating ticket on SQLite backend:", err);
@@ -363,6 +406,7 @@ export default function App() {
                 >
                   <option value="Employee Portal">Employee Portal</option>
                   <option value="Technician Portal">Technician Portal</option>
+                  <option value="Admin Portal">Admin Portal</option>
                 </select>
               </div>
 
@@ -489,11 +533,16 @@ export default function App() {
   }
 
   // --------------------------------------------------------------------------
-  // SORT TICKETS FOR STAFF DASHBOARD
+  // SORT TICKETS FOR TECHNICIAN QUEUE (EXCLUDES RESOLVED TICKETS)
   // --------------------------------------------------------------------------
+  const activeTickets = ticketsDb.filter(t => t.status !== 'Resolved');
+
   const priorityWeight = { Critical: 0, High: 1, Medium: 2, Low: 3 };
-  const sortedTickets = [...ticketsDb]
-    .map((tck, idx) => ({ tck, originalIndex: idx }))
+  const sortedTickets = [...activeTickets]
+    .map((tck) => {
+      const originalIndex = ticketsDb.findIndex(t => t.ticket_id === tck.ticket_id);
+      return { tck, originalIndex };
+    })
     .sort((a, b) => {
       const wa = priorityWeight[a.tck.priority] ?? 2;
       const wb = priorityWeight[b.tck.priority] ?? 2;
@@ -619,37 +668,52 @@ export default function App() {
         {/* Navigation block */}
         <div className="sidebar-title">Navigation</div>
         <div className="nav-group" style={{ marginBottom: '1.5rem' }}>
-          {userRole === 'technician' ? (
-            <>
-              <div 
-                className={`nav-item ${appMode === 'Employee Mode' ? 'active' : ''}`}
-                onClick={() => setAppMode('Employee Mode')}
-              >
-                <input 
-                  type="radio" 
-                  name="nav-mode" 
-                  checked={appMode === 'Employee Mode'} 
-                  readOnly 
-                />
-                Employee Mode
-              </div>
-              <div 
-                className={`nav-item ${appMode === 'Staff Mode (Dashboard)' ? 'active' : ''}`}
-                onClick={() => setAppMode('Staff Mode (Dashboard)')}
-              >
-                <input 
-                  type="radio" 
-                  name="nav-mode" 
-                  checked={appMode === 'Staff Mode (Dashboard)'} 
-                  readOnly 
-                />
-                Staff Mode (Dashboard)
-              </div>
-            </>
-          ) : (
-            <p style={{ textAlign: 'center', color: '#a5b4fc', fontWeight: 600 }}>
-              Employee Mode Active
-            </p>
+          {/* Employee Mode: Visible to Employee, Technician, and Admin */}
+          {(userRole === 'employee' || userRole === 'technician' || userRole === 'admin') && (
+            <div 
+              className={`nav-item ${appMode === 'Employee Mode' ? 'active' : ''}`}
+              onClick={() => setAppMode('Employee Mode')}
+            >
+              <input 
+                type="radio" 
+                name="nav-mode" 
+                checked={appMode === 'Employee Mode'} 
+                readOnly 
+              />
+              Employee Mode
+            </div>
+          )}
+
+          {/* Technician: Visible to Technician and Admin */}
+          {(userRole === 'technician' || userRole === 'admin') && (
+            <div 
+              className={`nav-item ${appMode === 'Technician' ? 'active' : ''}`}
+              onClick={() => setAppMode('Technician')}
+            >
+              <input 
+                type="radio" 
+                name="nav-mode" 
+                checked={appMode === 'Technician'} 
+                readOnly 
+              />
+              Technician
+            </div>
+          )}
+
+          {/* Ticket Dashboard: Visible to Admin */}
+          {userRole === 'admin' && (
+            <div 
+              className={`nav-item ${appMode === 'Ticket Dashboard' ? 'active' : ''}`}
+              onClick={() => setAppMode('Ticket Dashboard')}
+            >
+              <input 
+                type="radio" 
+                name="nav-mode" 
+                checked={appMode === 'Ticket Dashboard'} 
+                readOnly 
+              />
+              Ticket Dashboard
+            </div>
           )}
         </div>
 
@@ -745,7 +809,7 @@ export default function App() {
             </div>
           )}
           
-          {appMode === 'Employee Mode' ? (
+          {appMode === 'Employee Mode' && (
             <>
               <h1 className="title-gradient">AI-Powered Support Desk</h1>
               <p className="subtitle-text">
@@ -981,16 +1045,18 @@ export default function App() {
                 </div>
               )}
             </>
-          ) : (
-            // STAFF OPERATIONS DASHBOARD VIEW
+          )}
+
+          {/* TECHNICIAN MODE VIEW */}
+          {appMode === 'Technician' && (
             <>
-              <h1 className="title-gradient">Agent Operations Dashboard</h1>
+              <h1 className="title-gradient">Technician Queue</h1>
               <p className="subtitle-text">
                 View, prioritize, and manage live support issues submitted by employees.
               </p>
 
               <div className="matte-card">
-                <div className="section-header">Current Queue</div>
+                <div className="section-header">Current Active Queue</div>
 
                 {sortedTickets.length === 0 ? (
                   <p style={{ textAlign: 'center', padding: '2rem', color: '#475569', fontWeight: 600 }}>
@@ -1036,6 +1102,151 @@ export default function App() {
               </div>
             </>
           )}
+
+          {/* TICKET DASHBOARD VIEW */}
+          {appMode === 'Ticket Dashboard' && (
+            <>
+              <h1 className="title-gradient">Ticket Dashboard</h1>
+              <p className="subtitle-text">
+                Real-time analytics metrics and database records for IT support tickets.
+              </p>
+
+              {/* Analytics Metric Cards Grid - Matte & Blended with Page Colors */}
+              <div className="form-row" style={{ marginBottom: '2rem', gap: '1.25rem' }}>
+                {/* Total Tickets Card */}
+                <div className="matte-card" style={{ flex: 1, padding: 0, border: '2px solid #000000', backgroundColor: '#1e293b', borderRadius: '12px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ padding: '0.75rem 1rem', textAlign: 'center', borderBottom: '1px solid #000000' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f97316', letterSpacing: '0.05em' }}>TOTAL TICKETS</span>
+                  </div>
+                  <div style={{ padding: '1.25rem 1rem', textAlign: 'center', backgroundColor: '#fff7ed', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a' }}>{ticketsDb.length}</span>
+                  </div>
+                </div>
+
+                {/* Resolved Tickets Card */}
+                <div className="matte-card" style={{ flex: 1, padding: 0, border: '2px solid #000000', backgroundColor: '#1e293b', borderRadius: '12px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ padding: '0.75rem 1rem', textAlign: 'center', borderBottom: '1px solid #000000' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#22c55e', letterSpacing: '0.05em' }}>RESOLVED TICKETS</span>
+                  </div>
+                  <div style={{ padding: '1.25rem 1rem', textAlign: 'center', backgroundColor: '#fff7ed', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a' }}>{ticketsDb.filter(t => t.status === 'Resolved').length}</span>
+                  </div>
+                </div>
+
+                {/* Active Queue Card */}
+                <div className="matte-card" style={{ flex: 1, padding: 0, border: '2px solid #000000', backgroundColor: '#1e293b', borderRadius: '12px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ padding: '0.75rem 1rem', textAlign: 'center', borderBottom: '1px solid #000000' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#ef4444', letterSpacing: '0.05em' }}>ACTIVE QUEUE</span>
+                  </div>
+                  <div style={{ padding: '1.25rem 1rem', textAlign: 'center', backgroundColor: '#fff7ed', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a' }}>{ticketsDb.filter(t => t.status !== 'Resolved').length}</span>
+                  </div>
+                </div>
+
+                {/* Resolution Rate Card */}
+                <div className="matte-card" style={{ flex: 1, padding: 0, border: '2px solid #000000', backgroundColor: '#1e293b', borderRadius: '12px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ padding: '0.75rem 1rem', textAlign: 'center', borderBottom: '1px solid #000000' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#3b82f6', letterSpacing: '0.05em' }}>RESOLUTION RATE</span>
+                  </div>
+                  <div style={{ padding: '1.25rem 1rem', textAlign: 'center', backgroundColor: '#fff7ed', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a' }}>
+                      {ticketsDb.length > 0 
+                        ? Math.round((ticketsDb.filter(t => t.status === 'Resolved').length / ticketsDb.length) * 100) 
+                        : 0}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Master database logs table */}
+              <div className="matte-card" style={{ border: '2px solid #000000', backgroundColor: '#1e293b', padding: '2rem', borderRadius: '12px' }}>
+                <div className="section-header" style={{ marginBottom: '1.5rem', fontSize: '1.25rem', fontWeight: 'bold' }}>Database Ticket Logs</div>
+
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    style={{ flex: 2, padding: '0.75rem', fontSize: '0.9rem', backgroundColor: '#0f172a', border: '1px solid #475569', color: '#f1f5f9' }}
+                    placeholder="🔍 Search by Ticket ID, Employee Name, Title, Category, or Technician..." 
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  <select 
+                    className="form-select" 
+                    style={{ flex: 1, padding: '0.75rem', fontSize: '0.9rem', backgroundColor: '#0f172a', border: '1px solid #475569', color: '#f1f5f9' }}
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    <option value="All">All Statuses</option>
+                    <option value="Active">Active Only</option>
+                    <option value="Resolved">Resolved Only</option>
+                  </select>
+                </div>
+
+                {(() => {
+                  const filtered = ticketsDb.filter(tck => {
+                    const matchesSearch = 
+                      (tck.ticket_id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                      (tck.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                      (tck.title || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                      (tck.category || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                      (tck.resolved_by || '').toLowerCase().includes(searchTerm.toLowerCase());
+                    
+                    const matchesStatus = statusFilter === 'All' || 
+                      (statusFilter === 'Resolved' && tck.status === 'Resolved') ||
+                      (statusFilter === 'Active' && tck.status !== 'Resolved');
+
+                    return matchesSearch && matchesStatus;
+                  });
+
+                  if (filtered.length === 0) {
+                    return <p style={{ textAlign: 'center', color: '#94a3b8', padding: '2rem' }}>No tickets found matching the filters.</p>;
+                  }
+
+                  return (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', color: '#f1f5f9', fontSize: '0.9rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '2px solid #000000', textAlign: 'left', backgroundColor: '#fff7ed', color: '#0f172a' }}>
+                            <th style={{ padding: '0.75rem', color: '#0f172a' }}>Ticket ID</th>
+                            <th style={{ padding: '0.75rem', color: '#0f172a' }}>Employee Name</th>
+                            <th style={{ padding: '0.75rem', color: '#0f172a' }}>Ticket Title</th>
+                            <th style={{ padding: '0.75rem', color: '#0f172a' }}>Issue Facing</th>
+                            <th style={{ padding: '0.75rem', color: '#0f172a' }}>Status</th>
+                            <th style={{ padding: '0.75rem', color: '#0f172a' }}>Resolved By</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.map((tck, idx) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid #334155', backgroundColor: idx % 2 === 0 ? '#1e293b' : '#0f172a' }}>
+                              <td style={{ padding: '0.75rem', fontWeight: 'bold', color: '#f97316' }}>{tck.ticket_id}</td>
+                              <td style={{ padding: '0.75rem' }}>{tck.name}</td>
+                              <td style={{ padding: '0.75rem' }}>{tck.title}</td>
+                              <td style={{ padding: '0.75rem' }}>
+                                <span className="priority-badge" style={{ backgroundColor: '#334155', color: '#93c5fd', fontSize: '0.75rem', border: '1px solid #475569' }}>{tck.category}</span>
+                              </td>
+                              <td style={{ padding: '0.75rem' }}>
+                                <span style={{ 
+                                  color: tck.status === 'Resolved' ? '#22c55e' : '#ea580c', 
+                                  fontWeight: 'bold' 
+                                }}>
+                                  {tck.status}
+                                </span>
+                              </td>
+                              <td style={{ padding: '0.75rem', color: tck.status === 'Resolved' ? '#f1f5f9' : '#64748b', fontStyle: tck.status === 'Resolved' ? 'normal' : 'italic' }}>
+                                {tck.status === 'Resolved' ? `👤 ${tck.resolved_by || 'Unknown'}` : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            </>
+          )}
+
 
         </div>
       </div>

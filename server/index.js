@@ -25,12 +25,21 @@ const db = new sqlite3.Database(dbPath, (err) => {
       category TEXT NOT NULL,
       priority TEXT NOT NULL,
       desc TEXT,
-      status TEXT DEFAULT 'Pending Assignment'
+      status TEXT DEFAULT 'Pending Assignment',
+      resolved_by TEXT
     )`, (createErr) => {
       if (createErr) {
         console.error('Error creating tickets table:', createErr.message);
       } else {
         console.log('Tickets database table ready.');
+        // Run database migration to add resolved_by column if upgrading an existing db file
+        db.run('ALTER TABLE tickets ADD COLUMN resolved_by TEXT', (migrationErr) => {
+          if (migrationErr) {
+            // Silence warning if column already exists (which is expected on normal runs)
+          } else {
+            console.log('Database migration successful: added resolved_by column.');
+          }
+        });
       }
     });
   }
@@ -59,8 +68,8 @@ app.post('/api/tickets', (req, res) => {
     return res.status(400).json({ error: 'Missing required ticket fields.' });
   }
 
-  const sql = `INSERT INTO tickets (ticket_id, name, email, title, category, priority, desc, status) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+  const sql = `INSERT INTO tickets (ticket_id, name, email, title, category, priority, desc, status, resolved_by) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`;
   const params = [ticket_id, name, email, title, category, priority, desc, status || 'Pending Assignment'];
 
   db.run(sql, params, function(err) {
@@ -96,10 +105,31 @@ app.put('/api/tickets/:id', (req, res) => {
   });
 });
 
-// 4. DELETE: Resolve (remove) a ticket
+// 4. PUT: Resolve a ticket (update status to 'Resolved' and track who resolved it)
+app.put('/api/tickets/:id/resolve', (req, res) => {
+  const ticketId = req.params.id;
+  const { resolved_by } = req.body;
+
+  const sql = `UPDATE tickets 
+               SET status = 'Resolved', resolved_by = ? 
+               WHERE ticket_id = ?`;
+  const params = [resolved_by || 'System Default', ticketId];
+
+  db.run(sql, params, function(err) {
+    if (err) {
+      res.status(500).json({ error: err.message });
+    } else if (this.changes === 0) {
+      res.status(404).json({ error: 'Ticket not found.' });
+    } else {
+      res.json({ message: `Ticket ${ticketId} successfully resolved by ${resolved_by || 'System Default'}.` });
+    }
+  });
+});
+
+// 5. DELETE: Legacy resolve fallback
 app.delete('/api/tickets/:id', (req, res) => {
   const ticketId = req.params.id;
-  const sql = 'DELETE FROM tickets WHERE ticket_id = ?';
+  const sql = `UPDATE tickets SET status = 'Resolved', resolved_by = 'System Legacy' WHERE ticket_id = ?`;
 
   db.run(sql, ticketId, function(err) {
     if (err) {
@@ -107,7 +137,7 @@ app.delete('/api/tickets/:id', (req, res) => {
     } else if (this.changes === 0) {
       res.status(404).json({ error: 'Ticket not found.' });
     } else {
-      res.json({ message: `Ticket ${ticketId} successfully resolved and removed.` });
+      res.json({ message: `Ticket ${ticketId} successfully resolved.` });
     }
   });
 });
